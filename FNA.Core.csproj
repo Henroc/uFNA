@@ -17,6 +17,20 @@
 		<Message Importance="High" Text="No property overrides found at '$(FNASettingsPropsFilePath)'" Condition="!Exists('$(FNASettingsPropsFilePath)')" />
 		<Message Importance="High" Text="Loaded property overrides from '$(FNASettingsPropsFilePath)'" Condition="Exists('$(FNASettingsPropsFilePath)')" />
 	</Target>
+
+	<ItemGroup>
+		<Content Include="packages\fnalibs\x64\*.*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes\win-x64\native\%(RecursiveDir)\%(Filename)%(Extension)" Visible="true" />
+		<Content Include="packages\fnalibs\x86\*.*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes\win-x86\native\%(RecursiveDir)\%(Filename)%(Extension)" />
+		<Content Include="packages\fnalibs\osx-x64\*.*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes\osx-x64\native\%(RecursiveDir)\%(Filename)%(Extension)" />
+		<Content Include="packages\osx-arm64\*.*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes\osx-arm64\native\%(RecursiveDir)\%(Filename)%(Extension)" />
+		<Content Include="packages\fnalibs\lib64\*.*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes\linux-x64\native\%(RecursiveDir)\%(Filename)%(Extension)" />
+		<Content Include="packages\fnalibs\libaarch64\*.*" CopyToOutputDirectory="PreserveNewest" TargetPath="runtimes\linux-arm64\native\%(RecursiveDir)\%(Filename)%(Extension)" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Content Include="FNA.dll.config" CopyToOutputDirectory="PreserveNewest" TargetPath="%(RecursiveDir)\%(Filename)%(Extension)" Visible="true" />
+	</ItemGroup>
+	
 	<ItemGroup>
 		<Compile Include="src\Audio\AudioCategory.cs" />
 		<Compile Include="src\Audio\AudioChannels.cs" />
@@ -342,6 +356,7 @@
 	</ItemGroup>
 	<ItemGroup>
 		<None Include="app.config" />
+		<None Include="FNA.dll.config" />
 	</ItemGroup>
 	<ItemGroup>
 		<EmbeddedResource Include="src\Graphics\Effect\StockEffects\FXB\AlphaTestEffect.fxb">
