@@ -183,7 +183,7 @@ namespace Microsoft.Xna.Framework
 			if (args.TryGetValue("audiodriver", out arg))
 			{
 				SDL.SDL_SetHintWithPriority(
-					"SDL_AUDIODRIVER",
+					"SDL_AUDIO_DRIVER",
 					arg,
 					SDL.SDL_HintPriority.SDL_HINT_OVERRIDE
 				);
@@ -205,7 +205,7 @@ namespace Microsoft.Xna.Framework
 			 * screen may not be covering the whole display.
 			 */
 			SupportsGlobalMouse = (	OSVersion.Equals("Windows") ||
-						OSVersion.Equals("Mac OS X") ||
+						OSVersion.Equals("macOS") ||
 						videoDriver.Equals("x11")	);
 
 			// Only iOS and Android care about device orientation.
@@ -255,10 +255,11 @@ namespace Microsoft.Xna.Framework
 				(uint) SDL.SDL_EventType.SDL_EVENT_GAMEPAD_ADDED,
 				(uint) SDL.SDL_EventType.SDL_EVENT_GAMEPAD_ADDED
 			) == 1) {
-				INTERNAL_AddInstance(evt[0].cdevice.which);
+				INTERNAL_AddInstance(evt[0].gdevice.which);
 			}
 
-			if (OSVersion.Equals("Windows"))
+			if (	OSVersion.Equals("Windows") &&
+				SDL.SDL_GetHint("FNA_WIN32_IGNORE_WM_PAINT") != "1" )
 			{
 				/* Windows has terrible event pumping and doesn't give us
 				 * WM_PAINT events correctly. So we get to do this!
@@ -280,14 +281,6 @@ namespace Microsoft.Xna.Framework
 
 		public static void ProgramExit(object sender, EventArgs e)
 		{
-			AudioEngine.ProgramExiting = true;
-
-			if (SoundEffect.FAudioContext.Context != null)
-			{
-				SoundEffect.FAudioContext.Context.Dispose();
-			}
-			Media.MediaPlayer.DisposeIfNecessary();
-
 			// This _should_ be the last SDL call we make...
 			SDL.SDL_QuitSubSystem(
 				SDL.SDL_InitFlags.SDL_INIT_VIDEO |
@@ -334,7 +327,7 @@ namespace Microsoft.Xna.Framework
 				if (cachePath == null) // Empty is a valid value
 				{
 					if (	OSVersion.Equals("Windows") ||
-						OSVersion.Equals("Mac OS X") ||
+						OSVersion.Equals("macOS") ||
 						OSVersion.Equals("Linux") ||
 						OSVersion.Equals("FreeBSD") ||
 						OSVersion.Equals("OpenBSD") ||
@@ -829,12 +822,7 @@ namespace Microsoft.Xna.Framework
 			// Store this for internal event filter work
 			activeGames.Add(game);
 
-			// Which display did we end up on?
-			uint displayId = SDL.SDL_GetDisplayForWindow(
-				game.Window.Handle
-			);
-			int displayIndex = FetchDisplayIndex(displayId);
-			return GraphicsAdapter.Adapters[displayIndex];
+			return FetchDisplayAdapter(game.Window.Handle);
 		}
 
 		public static void UnregisterGame(Game game)
@@ -944,7 +932,7 @@ namespace Microsoft.Xna.Framework
 						evt.tfinger.dy
 					);
 				}
-				else if (evt.type == (uint) SDL.SDL_EventType.SDL_EVENT_FINGER_UP)
+				else if (evt.type == (uint) SDL.SDL_EventType.SDL_EVENT_FINGER_UP || evt.type == (uint) SDL.SDL_EventType.SDL_EVENT_FINGER_CANCELED)
 				{
 					TouchPanel.INTERNAL_onTouchEvent(
 						(int) evt.tfinger.fingerID,
@@ -992,9 +980,13 @@ namespace Microsoft.Xna.Framework
 					// Window Resize
 					else if (evt.type == (uint) SDL.SDL_EventType.SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
 					{
-						// This is called on both API and WM resizes
-						Mouse.INTERNAL_WindowWidth = evt.window.data1;
-						Mouse.INTERNAL_WindowHeight = evt.window.data2;
+						/* This is called on both API and WM resizes.
+						 * We have to use WindowBounds instead of data1/2,
+						 * since data1/2 are in pixels, not desktop units.
+						 */
+						Rectangle b = GetWindowBounds(Mouse.WindowHandle);
+						Mouse.INTERNAL_WindowWidth = b.Width;
+						Mouse.INTERNAL_WindowHeight = b.Height;
 					}
 					else if (evt.type == (uint) SDL.SDL_EventType.SDL_EVENT_WINDOW_RESIZED)
 					{
@@ -1023,19 +1015,11 @@ namespace Microsoft.Xna.Framework
 						 * display, a GraphicsDevice Reset occurs.
 						 * -flibit
 						 */
-						uint newId = SDL.SDL_GetDisplayForWindow(
-							game.Window.Handle
-						);
-						int newIndex = FetchDisplayIndex(newId);
+						GraphicsAdapter next = FetchDisplayAdapter(game.Window.Handle);
 
-						if (newIndex >= GraphicsAdapter.Adapters.Count)
+						if (next != currentAdapter)
 						{
-							GraphicsAdapter.AdaptersChanged(); // quickfix for this event coming in before the display reattach event. (must be fixed in sdl)
-						}
-
-						if (GraphicsAdapter.Adapters[newIndex] != currentAdapter)
-						{
-							currentAdapter = GraphicsAdapter.Adapters[newIndex];
+							currentAdapter = next;
 							game.GraphicsDevice.Reset(
 								game.GraphicsDevice.PresentationParameters,
 								currentAdapter
@@ -1052,6 +1036,24 @@ namespace Microsoft.Xna.Framework
 					{
 						SDL.SDL_EnableScreenSaver();
 					}
+
+					// Full screen
+					else if (evt.type == (uint) SDL.SDL_EventType.SDL_EVENT_WINDOW_ENTER_FULLSCREEN)
+					{
+						Object manager = game.Services.GetService(typeof(IGraphicsDeviceManager));
+						if (manager != null && manager is GraphicsDeviceManager)
+						{
+							((GraphicsDeviceManager) manager).IsFullScreen = true;
+						}
+					}
+					else if (evt.type == (uint) SDL.SDL_EventType.SDL_EVENT_WINDOW_LEAVE_FULLSCREEN)
+					{
+						Object manager = game.Services.GetService(typeof(IGraphicsDeviceManager));
+						if (manager != null && manager is GraphicsDeviceManager)
+						{
+							((GraphicsDeviceManager) manager).IsFullScreen = false;
+						}
+					}
 				}
 
 				// Display Events
@@ -1059,11 +1061,7 @@ namespace Microsoft.Xna.Framework
 				{
 					GraphicsAdapter.AdaptersChanged();
 
-					uint displayId = SDL.SDL_GetDisplayForWindow(
-						game.Window.Handle
-					);
-					int displayIndex = FetchDisplayIndex(displayId);
-					currentAdapter = GraphicsAdapter.Adapters[displayIndex];
+					currentAdapter = FetchDisplayAdapter(game.Window.Handle);
 
 					// Orientation Change
 					if (evt.type == (uint) SDL.SDL_EventType.SDL_EVENT_DISPLAY_ORIENTATION)
@@ -1084,9 +1082,8 @@ namespace Microsoft.Xna.Framework
 					}
 					else
 					{
-						// Just reset, this is probably a hotplug
-						game.GraphicsDevice.Reset(
-							game.GraphicsDevice.PresentationParameters,
+						// Quietly update, this is probably a hotplug
+						game.GraphicsDevice.QuietlyUpdateAdapter(
 							currentAdapter
 						);
 					}
@@ -1095,11 +1092,11 @@ namespace Microsoft.Xna.Framework
 				// Controller device management
 				else if (evt.type == (uint) SDL.SDL_EventType.SDL_EVENT_GAMEPAD_ADDED)
 				{
-					INTERNAL_AddInstance(evt.cdevice.which);
+					INTERNAL_AddInstance(evt.gdevice.which);
 				}
 				else if (evt.type == (uint) SDL.SDL_EventType.SDL_EVENT_GAMEPAD_REMOVED)
 				{
-					INTERNAL_RemoveInstance(evt.cdevice.which);
+					INTERNAL_RemoveInstance(evt.gdevice.which);
 				}
 
 				// Text Input
@@ -1223,16 +1220,32 @@ namespace Microsoft.Xna.Framework
 
 		// FIXME SDL3: This is really sloppy -flibit
 		private static uint[] displayIds;
-		private static int FetchDisplayIndex(uint id)
+		private static GraphicsAdapter FetchDisplayAdapter(IntPtr window, bool retry = true)
 		{
+			uint displayId = SDL.SDL_GetDisplayForWindow(window);
+
+			int index = -1;
 			for (int i = 0; i < displayIds.Length; i += 1)
 			{
-				if (id == displayIds[i])
+				if (displayId == displayIds[i])
 				{
-					return i;
+					index = i;
+					break;
 				}
 			}
-			throw new InvalidOperationException();
+
+			if (index < 0 || index > GraphicsAdapter.Adapters.Count)
+			{
+				FNALoggerEXT.LogWarn("SDL3 Window ID and Display ID desync'd");
+				if (retry)
+				{
+					GraphicsAdapter.AdaptersChanged();
+					return FetchDisplayAdapter(window, false);
+				}
+				FNALoggerEXT.LogWarn("SDL3 Window ID and Display ID desync'd really badly");
+				return GraphicsAdapter.DefaultAdapter;
+			}
+			return GraphicsAdapter.Adapters[index];
 		}
 
 		public static GraphicsAdapter[] GetGraphicsAdapters()
@@ -1325,7 +1338,6 @@ namespace Microsoft.Xna.Framework
 			{
 				/* This is inaccurate, but what can you do... */
 				flags = SDL.SDL_GetMouseState(out fx, out fy);
-				
 			}
 			// FIXME SDL3: Should this be rounded?
 			x = (int) fx;
@@ -1377,11 +1389,11 @@ namespace Microsoft.Xna.Framework
 
 		private static string GetBaseDirectory()
 		{
-			if (Environment.GetEnvironmentVariable("FNA_SDL2_FORCE_BASE_PATH") != "1")
+			if (Environment.GetEnvironmentVariable("FNA_SDL_FORCE_BASE_PATH") != "1")
 			{
 				// If your platform uses a CLR, you want to be in this list!
 				if (	OSVersion.Equals("Windows") ||
-					OSVersion.Equals("Mac OS X") ||
+					OSVersion.Equals("macOS") ||
 					OSVersion.Equals("Linux") ||
 					OSVersion.Equals("FreeBSD") ||
 					OSVersion.Equals("OpenBSD") ||
@@ -1441,7 +1453,7 @@ namespace Microsoft.Xna.Framework
 					exeName
 				);
 			}
-			if (OSVersion.Equals("Mac OS X"))
+			if (OSVersion.Equals("macOS"))
 			{
 				string osConfigDir = Environment.GetEnvironmentVariable("HOME");
 				if (String.IsNullOrEmpty(osConfigDir))
@@ -2196,7 +2208,7 @@ namespace Microsoft.Xna.Framework
 			 * -caleb
 			 */
 			int numDevices;
-			SDL.SDL_GetTouchDevices(out numDevices);
+			SDL.SDL_free(SDL.SDL_GetTouchDevices(out numDevices));
 			bool touchDeviceExists = numDevices > 0;
 			return new TouchPanelCapabilities(
 				touchDeviceExists,
@@ -2206,18 +2218,20 @@ namespace Microsoft.Xna.Framework
 
 		public static unsafe void UpdateTouchPanelState()
 		{
-			/* FIXME SDL3: Touch
 			// Poll the touch device for all active fingers
-			long touchDevice = SDL.SDL_GetTouchDevice(0);
+			int fingers;
+			IntPtr fingerArray = SDL.SDL_GetTouchFingers(GetTouchDeviceId(0), out fingers);
+
 			for (int i = 0; i < TouchPanel.MAX_TOUCHES; i += 1)
 			{
-				SDL.SDL_Finger* finger = (SDL.SDL_Finger*) SDL.SDL_GetTouchFinger(touchDevice, i);
-				if (finger == null)
+				if (i >= fingers)
 				{
 					// No finger found at this index
 					TouchPanel.SetFinger(i, TouchPanel.NO_FINGER, Vector2.Zero);
 					continue;
 				}
+
+				SDL.SDL_Finger* finger = ((SDL.SDL_Finger**) fingerArray)[i];
 
 				// Send the finger data to the TouchPanel
 				TouchPanel.SetFinger(
@@ -2229,17 +2243,24 @@ namespace Microsoft.Xna.Framework
 					)
 				);
 			}
-			*/
+
+			SDL.SDL_free(fingerArray);
 		}
 
 		public static int GetNumTouchFingers()
 		{
-			/* FIXME SDL3: Touch
-			return SDL.SDL_GetNumTouchFingers(
-				SDL.SDL_GetTouchDevice(0)
-			);
-			*/
-			return 0;
+			int fingers;
+			SDL.SDL_free(SDL.SDL_GetTouchFingers(GetTouchDeviceId(0), out fingers));
+			return fingers;
+		}
+
+		private static unsafe ulong GetTouchDeviceId(int index)
+		{
+			int touchDeviceCount;
+			IntPtr touchDeviceIDs = SDL.SDL_GetTouchDevices(out touchDeviceCount);
+			ulong result = index >= 0 && index < touchDeviceCount ? ((ulong*) touchDeviceIDs)[index] : 0;
+			SDL.SDL_free(touchDeviceIDs);
+			return result;
 		}
 
 		#endregion

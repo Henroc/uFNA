@@ -289,9 +289,24 @@ SRC = \
 	src/LaunchParameters.cs \
 	src/MathHelper.cs \
 	src/Matrix.cs \
+	src/Media/Album.cs \
+	src/Media/AlbumCollection.cs \
+	src/Media/Artist.cs \
+	src/Media/ArtistCollection.cs \
+	src/Media/Genre.cs \
+	src/Media/GenreCollection.cs \
+	src/Media/MediaLibrary.cs \
 	src/Media/MediaPlayer.cs \
 	src/Media/MediaQueue.cs \
+	src/Media/MediaSource.cs \
+	src/Media/MediaSourceType.cs \
 	src/Media/MediaState.cs \
+	src/Media/Picture.cs \
+	src/Media/PictureAlbum.cs \
+	src/Media/PictureAlbumCollection.cs \
+	src/Media/PictureCollection.cs \
+	src/Media/Playlist.cs \
+	src/Media/PlaylistCollection.cs \
 	src/Media/Song.cs \
 	src/Media/SongCollection.cs \
 	src/Media/VideoSoundtrackType.cs \
@@ -342,7 +357,7 @@ RES = \
 debug: clean-debug
 	mkdir -p bin/Debug
 	cp app.config bin/Debug/FNA.dll.config
-	mcs /unsafe -debug -define:DEBUG -out:bin/Debug/FNA.dll -target:library $(SRC) $(RES)
+	mcs /unsafe /langversion:4 -debug -define:DEBUG -out:bin/Debug/FNA.dll -target:library $(SRC) $(RES)
 
 clean-debug:
 	rm -rf bin/Debug
@@ -350,7 +365,7 @@ clean-debug:
 release: clean-release
 	mkdir -p bin/Release
 	cp app.config bin/Release/FNA.dll.config
-	mcs /unsafe -optimize -out:bin/Release/FNA.dll -target:library $(SRC) $(RES)
+	mcs /unsafe /langversion:4 -optimize -out:bin/Release/FNA.dll -target:library $(SRC) $(RES)
 
 clean-release:
 	rm -rf bin/Release
